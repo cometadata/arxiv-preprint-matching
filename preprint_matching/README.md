@@ -52,7 +52,7 @@ python preprint_match_data_files.py -i preprints.jsonl.gz -o matches.json -f jso
 
 ### Scoring Logic, Weights, and Heuristics:
 
-The core and primary changes to the the strategy (as comparared to the original), lie in the use of some new weighted scoring mechanisms and leveraging a blend of fuzzy matches:
+The core logic and primary changes to the the strategy (as comparared to the original), lie in the use of some new weighted scoring mechanisms and leveraging a blend of fuzzy matches:
 
 * **Year Score:**
     * Calculates `preprint_year - article_year`.
