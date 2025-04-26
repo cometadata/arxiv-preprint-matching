@@ -50,7 +50,7 @@ python preprint_match_data_files.py -i preprints.jsonl.gz -o matches.json -f jso
 3. Since we're inverting the search to begin with preprints, instead of pre-filter the query, the strategy retrieves a broader set of candidates and then filters them after retrieval. We retains candidates whose Crossref work type matches a predefined list (`accepted_crossref_types`), which includes `journal-article`, `proceedings-article`, `book-chapter`, `report`, and `posted-content`. 
 
 
-### Scoring Logic, Weights, and Heuristics:**
+### Scoring Logic, Weights, and Heuristics:
 
 The core and primary changes to the the strategy (as comparared to the original), lie in the use of some new weighted scoring mechanisms and leveraging a blend of fuzzy matches:
 
