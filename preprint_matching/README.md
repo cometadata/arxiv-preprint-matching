@@ -46,7 +46,7 @@ python preprint_match_data_files.py -i preprints.jsonl.gz -o matches.json -f jso
 ### Search Approach and Candidate Filtering
 
 1.  A bibliographic query string is built using metadata extracted from the DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These components are then normalized using a more thorough `_normalize_string` function (handling Unicode, accents, case, punctuation) before query construction.
-2. The then query targets the Crossref `/works` endpoint using the `query.bibliographic` parameter, requesting up to 25 results (`rows=25`).
+2. The query then targets the Crossref `/works` endpoint using the `query.bibliographic` parameter, requesting up to 25 results (`rows=25`).
 3. Since we're inverting the search to begin with preprints, instead of pre-filter the query, the strategy retrieves a broader set of candidates and then filters them after retrieval. We retains candidates whose Crossref work type matches a predefined list (`accepted_crossref_types`), which includes `journal-article`, `proceedings-article`, `book-chapter`, `report`, and `posted-content`. 
 
 
