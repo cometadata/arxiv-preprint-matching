@@ -21,13 +21,13 @@ class PreprintSbmvStrategy:
     )
     default = False
 
-    min_score = 0.85
-    max_score_diff = 0.04
+    min_score = 0.8
+    max_score_diff = 0.03
     max_query_len = 5000
 
     weight_year = 0.4
-    weight_title = 1.0
-    weight_author = 2.2
+    weight_title = 2.0
+    weight_author = 1.2
 
     accepted_crossref_types = [
         "journal-article",
