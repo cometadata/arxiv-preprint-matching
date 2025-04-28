@@ -11,7 +11,7 @@ from matching.utils import crossref_rest_api_call, doi_id
 
 
 class PreprintSbmvStrategy:
-    strategy = "preprint-sbmv-datacite-contrib-v2"
+    strategy = "preprint-sbmv-datacite"
     task = "preprint-matching"
     description = (
         "This strategy uses Crossref's REST API to search for candidate "
@@ -21,13 +21,12 @@ class PreprintSbmvStrategy:
     )
     default = False
 
-    min_score = 0.8
-    max_score_diff = 0.03
-    max_query_len = 5000
-
-    weight_year = 0.4
-    weight_title = 2.0
-    weight_author = 1.2
+    DEFAULT_MIN_SCORE = 0.85
+    DEFAULT_MAX_SCORE_DIFF = 0.03
+    DEFAULT_MAX_QUERY_LEN = 5000
+    DEFAULT_WEIGHT_YEAR = 0.4
+    DEFAULT_WEIGHT_TITLE = 2.0
+    DEFAULT_WEIGHT_AUTHOR = 0.8
 
     accepted_crossref_types = [
         "journal-article",
@@ -37,7 +36,17 @@ class PreprintSbmvStrategy:
         "posted-content"
     ]
 
-    def __init__(self, mailto, user_agent, logger_instance=None, log_candidates=False, candidate_log_file="crossref_candidates.log"):
+    def __init__(self, mailto, user_agent,
+                 min_score=DEFAULT_MIN_SCORE,
+                 max_score_diff=DEFAULT_MAX_SCORE_DIFF,
+                 weight_year=DEFAULT_WEIGHT_YEAR,
+                 weight_title=DEFAULT_WEIGHT_TITLE,
+                 weight_author=DEFAULT_WEIGHT_AUTHOR,
+                 max_query_len=DEFAULT_MAX_QUERY_LEN,
+                 logger_instance=None,
+                 log_candidates=False,
+                 candidate_log_file="crossref_candidates.log"):
+
         if not mailto or not user_agent:
             raise ValueError(
                 "mailto and user_agent are required for Strategy initialization.")
@@ -49,10 +58,21 @@ class PreprintSbmvStrategy:
             logging.basicConfig(
                 level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+        self.min_score = float(min_score)
+        self.max_score_diff = float(max_score_diff)
+        self.weight_year = float(weight_year)
+        self.weight_title = float(weight_title)
+        self.weight_author = float(weight_author)
+        self.max_query_len = int(max_query_len)
+
         self.log_candidates = log_candidates
         self.candidate_log_file = candidate_log_file
         if self.log_candidates:
             self.logger.info(f"Candidate logging enabled. Raw candidates will be saved to: {self.candidate_log_file}")
+
+        self.logger.info(f"Strategy initialized with parameters: min_score={self.min_score}, "
+                         f"max_score_diff={self.max_score_diff}, weight_year={self.weight_year}, "
+                         f"weight_title={self.weight_title}, weight_author={self.weight_author}")
 
     def _normalize_string(self, text):
         if text is None:
@@ -69,10 +89,11 @@ class PreprintSbmvStrategy:
             normalized_text = re.sub(r'\s+', ' ', normalized_text).strip()
             return normalized_text
         except Exception as e:
-            self.logger.error(f"Error normalizing string '{str(text)[:100]}...': {e}", exc_info=True)
+            # Reduce noise in logs
+            self.logger.error(f"Error normalizing string '{str(text)[:100]}...': {e}", exc_info=False)
+            # Basic fallback
             temp_text = re.sub(r'\s+', ' ', str(text)).strip().lower()
-            temp_text = re.sub(r'[^\w\s-]', '', temp_text,
-                               flags=re.UNICODE)  # Basic fallback
+            temp_text = re.sub(r'[^\w\s-]', '', temp_text, flags=re.UNICODE)
             return temp_text
 
     def match(self, input_json_string):
@@ -216,7 +237,7 @@ class PreprintSbmvStrategy:
             }
             for doi, score in final_matches
         ]
-        self.logger.info(f"Found {len(formatted_results)} final match(es) for Input DOI {input_doi}.")
+        self.logger.info(f"Found {len(formatted_results)} final match(es) for Input DOI {input_doi} (using min_score={self.min_score}, max_diff={self.max_score_diff}).")
         return formatted_results
 
     def candidate_query(self, article_datacite):
@@ -243,11 +264,13 @@ class PreprintSbmvStrategy:
                         elif t_type == "subtitle" and not subtitle:
                             subtitle = t_title
             if not main_title and titles_list and isinstance(titles_list[0], dict):
+                # Fallback to first title if 'main' isn't specified
                 main_title = titles_list[0].get("title", "")
 
         if main_title:
             title = main_title
             if subtitle:
+                # Combine title and subtitle
                 title = f"{main_title}: {subtitle}"
 
         if title:
@@ -313,7 +336,7 @@ class PreprintSbmvStrategy:
         a_score = self.authors_score(article_datacite, preprint_crossref)
 
         if y_score is None or t_score is None or a_score is None:
-            self.logger.warning(f"Failed to calculate one or more score components for Input:{input_doi} vs Cand:{preprint_doi}")
+            self.logger.warning(f"Failed to calculate one or more score components for Input:{input_doi} vs Cand:{preprint_doi}. Cannot compute final score.")
             return None
 
         weighted_sum = (self.weight_year * y_score +
@@ -329,7 +352,10 @@ class PreprintSbmvStrategy:
         else:
             final_score = weighted_sum / total_weight
 
-        self.logger.debug(f"Scores for Input:{input_doi} vs Cand:{preprint_doi}: Year={y_score:.3f}, Title={t_score:.3f}, Author={a_score:.3f} -> Final={final_score:.3f}")
+        self.logger.debug(f"Scores for Input:{input_doi} vs Cand:{preprint_doi}: "
+                          f"Year={y_score:.3f} (w={self.weight_year}), "
+                          f"Title={t_score:.3f} (w={self.weight_title}), "
+                          f"Author={a_score:.3f} (w={self.weight_author}) -> Final={final_score:.3f}")
         return final_score
 
     def year_score(self, article_datacite, preprint_crossref):
@@ -393,7 +419,8 @@ class PreprintSbmvStrategy:
             return score
 
         except (ValueError, TypeError, IndexError, AttributeError) as e:
-            self.logger.error(f"Error calculating year score for Input:{input_doi} vs Cand:{preprint_doi}: {e}", exc_info=True)
+            # Reduce log noise
+            self.logger.error(f"Error calculating year score for Input:{input_doi} vs Cand:{preprint_doi}: {e}", exc_info=False)
             return None
 
     def title_score(self, article_datacite, preprint_crossref):
@@ -451,13 +478,15 @@ class PreprintSbmvStrategy:
                 article_title_norm, preprint_title_norm) / 100.0
             score_r = fuzz.ratio(article_title_norm,
                                  preprint_title_norm) / 100.0
+
             score = (score_ts * 0.45 + score_tso * 0.45 + score_r * 0.10)
 
             def differ_by_keywords(title1_norm, title2_norm):
                 words1 = title1_norm.split()[:3]
                 words2 = title2_norm.split()[:3]
                 keywords = {self._normalize_string(k) for k in [
-                    "correction", "response", "reply", "appendix", "erratum", "corrigendum", "comment", "addendum"
+                    "correction", "response", "reply", "appendix", "erratum",
+                    "corrigendum", "comment", "addendum", "retraction", "withdrawal"
                 ]}
                 t1_has_keyword = any(word in keywords for word in words1)
                 t2_has_keyword = any(word in keywords for word in words2)
@@ -466,12 +495,12 @@ class PreprintSbmvStrategy:
 
             if differ_by_keywords(article_title_norm, preprint_title_norm):
                 self.logger.debug(f"Applying title keyword penalty for Input:{input_doi} vs Cand:{preprint_doi}")
-                score *= 0.67
 
             return score
 
         except Exception as e:
-            self.logger.error(f"Error calculating title score for Input:{input_doi} vs Cand:{preprint_doi}: {e}", exc_info=True)
+            # Reduce log noise
+            self.logger.error(f"Error calculating title score for Input:{input_doi} vs Cand:{preprint_doi}: {e}", exc_info=False)
             return None
 
     def authors_score(self, article_datacite, preprint_crossref):
@@ -505,7 +534,7 @@ class PreprintSbmvStrategy:
                 crossref_author_list, 'crossref', preprint_doi)
 
             if article_authors_norm is None or preprint_authors_norm is None:
-                self.logger.error(f"Author normalization failed for Input:{input_doi} vs Cand:{preprint_doi}")
+                self.logger.error(f"Author normalization failed for Input:{input_doi} vs Cand:{preprint_doi}. Cannot calculate score.")
                 return None
 
             len1 = len(article_authors_norm)
@@ -573,7 +602,8 @@ class PreprintSbmvStrategy:
             return final_score
 
         except Exception as e:
-            self.logger.error(f"Error calculating authors score for Input:{input_doi} vs Cand:{preprint_doi}: {e}", exc_info=True)
+            # Reduce log noise
+            self.logger.error(f"Error calculating authors score for Input:{input_doi} vs Cand:{preprint_doi}: {e}", exc_info=False)
             return None
 
     def _normalize_authors(self, authors_list, source_format, context_doi="N/A"):
@@ -591,12 +621,10 @@ class PreprintSbmvStrategy:
                 if source_format == 'datacite' and person.get("nameType") == "Organizational":
                     self.logger.debug(f"Skipping Organizational author/contributor in {source_format} for DOI {context_doi}: {person.get('name')}")
                     continue
-                elif source_format == 'crossref' and (person.get('family') is None and person.get('name') is not None):
-                    # Crossref works can have organizational authors without explicit type
-                    # Heuristic: if no given name, likely org
-                    if not person.get('given'):
-                        self.logger.debug(f"Skipping likely Organizational author in {source_format} for DOI {context_doi}: {person.get('name')}")
-                        continue
+
+                elif source_format == 'crossref' and (person.get('family') is None and person.get('given') is None and person.get('name') is not None):
+                    self.logger.debug(f"Skipping likely Organizational author (heuristic) in {source_format} for DOI {context_doi}: {person.get('name')}")
+                    continue
 
                 raw_given = ''
                 raw_family = ''
@@ -617,7 +645,6 @@ class PreprintSbmvStrategy:
                             if len(parts) > 1:
                                 raw_family = parts[-1]
                                 raw_given = " ".join(parts[:-1])
-                            # else: keep empty, handled later
 
                 elif source_format == 'crossref':
                     raw_given = person.get('given', '') or ''
@@ -644,7 +671,6 @@ class PreprintSbmvStrategy:
                             if not final_given:
                                 final_given = " ".join(parts[:-1])
                         elif len(parts) == 1 and not final_given:
-                            # Only one name part, assume it's family if no other info
                             final_family = parts[0]
 
                 initials = "".join(part[0]
@@ -663,7 +689,7 @@ class PreprintSbmvStrategy:
                                 if scheme == 'ORCID' or 'orcid.org' in uri:
                                     orcid_val = identifier.get(
                                         'nameIdentifier', '') or ''
-                                    if orcid_val:
+                                    if orcid_val:  # Found one, stop searching
                                         break
                 elif source_format == 'crossref':
                     orcid_val = person.get('ORCID', '') or ''
@@ -693,8 +719,10 @@ class PreprintSbmvStrategy:
                     self.logger.debug(f"Skipping author with insufficient info in {source_format} for DOI {context_doi}: {str(person)[:100]}")
 
             return normalized
+
         except Exception as e:
-            self.logger.error(f"Error during author normalization (format: {source_format}, DOI: {context_doi}): {e}", exc_info=True)
+            # Reduce log noise
+            self.logger.error(f"Error during author normalization (format: {source_format}, DOI: {context_doi}): {e}", exc_info=False)
             return None
 
     def _find_most_similar_author_pair(self, authors1_norm, authors2_norm):
@@ -720,7 +748,8 @@ class PreprintSbmvStrategy:
                     if best_score >= 0.999:
                         break
                 except Exception as e:
-                    self.logger.error(f"Error comparing author pair ({str(a1)[:50]}, {str(a2)[:50]}): {e}", exc_info=True)
+                    # Reduce log noise
+                    self.logger.error(f"Error comparing author pair ({str(a1)[:50]}, {str(a2)[:50]}): {e}", exc_info=False)
                     continue
 
             if best_score >= 0.999:
@@ -773,7 +802,8 @@ class PreprintSbmvStrategy:
             return best_name_score
 
         except Exception as e:
-            self.logger.error(f"Error scoring normalized author similarity between {str(author1_norm)[:50]} and {str(author2_norm)[:50]}: {e}", exc_info=True)
+            # Reduce log noise
+            self.logger.error(f"Error scoring normalized author similarity between {str(author1_norm)[:50]} and {str(author2_norm)[:50]}: {e}", exc_info=False)
             return None
 
     def _get_author_name_variations(self, author_norm):
@@ -824,5 +854,5 @@ class PreprintSbmvStrategy:
             return final_names if final_names else set()
 
         except Exception as e:
-            self.logger.error(f"Error getting author name variations for {str(author_norm)[:50]}: {e}", exc_info=True)
+            self.logger.error(f"Error getting author name variations for {str(author_norm)[:50]}: {e}", exc_info=False)
             return None

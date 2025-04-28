@@ -11,7 +11,7 @@ pip install -r requirements.txt
 ## Usage
 
 ```
-python preprint_match_data_files.py -i INPUT_FILE -o OUTPUT_FILE -f FORMAT -m EMAIL -u USER_AGENT [-ll LOG_LEVEL] [-lf LOG_FILE] [-lc] [-cf CANDIDATE_LOG_FILE]
+python preprint\_match\_data\_files.py -i INPUT\_FILE -o OUTPUT\_FILE -f FORMAT -m EMAIL -u USER\_AGENT [OPTIONS]
 ```
 
 ### Required Arguments
@@ -22,22 +22,36 @@ python preprint_match_data_files.py -i INPUT_FILE -o OUTPUT_FILE -f FORMAT -m EM
 - `-u, --user-agent`: User-Agent string for API requests
 
 ### Optional Arguments
-- `-ll, --log-level`: Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, NONE)
-- `-lf, --log-file`: Path to log file (defaults to stderr)
-- `-lc, --log-candidates`: If set, logs raw Crossref candidate results
-- `-cf, --candidate-log-file`: Path for logging candidates (default: crossref_candidates.log)
+#### Logging:
+- `-ll, --log-level`: Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, NONE). Default: INFO.
+- `-lf, --log-file`: Path to log file (defaults to stderr).
+- `-lc, --log-candidates`: If set, logs raw Crossref candidate results.
+- `-cf, --candidate-log-file`: Path for logging candidates (default: crossref_candidates.log).
 
+#### Strategy Parameters:
+- `--min-score`: Minimum score threshold for a match (default: 0.85).
+- `--max-score-diff`: Maximum allowed difference from top score for multiple matches (default: 0.03).
+- `--weight-year`: Weight for the year score component (default: 0.4).
+- `--weight-title`: Weight for the title score component (default: 2.0).
+- `--weight-author`: Weight for the author score component (default: 0.8).
+- `--max-query-len`: Maximum length of the query string sent to Crossref (default: 5000).
+
+**Note:** This matching strategy uses default parameters for scoring (e.g., weights for year, title, author similarity). These can be overridden using the optional arguments below, allowing for testing and optimization of the weights.
 
 ## Examples
 
 Process a JSONL file and output matches to CSV:
+
 ```
-python preprint_match_data_files.py -i preprints.jsonl -o matches.csv -f csv -m user@example.com -u "PrerintMatchingTool/1.0"
+python preprint\_match\_data\_files.py -i preprints.jsonl -o matches.csv -f csv -m [email address removed] -u "PrerintMatchingTool/1.0"
 ```
 
-Process a gzipped JSONL file with detailed logging:
+Process a gzipped JSONL file with detailed logging and custom strategy weights:
+
 ```
-python preprint_match_data_files.py -i preprints.jsonl.gz -o matches.json -f json -m user@example.com -u "PrerintMatchingTool/1.0" -ll DEBUG -lf matching.log -lc
+python preprint\_match\_data\_files.py -i preprints.jsonl.gz -o matches.json -f json -m [email address removed] -u "PrerintMatchingTool/1.0"  
+\-ll DEBUG -lf matching.log -lc  
+\--min-score 0.8 --weight-title 1.5 --weight-author 1.0
 ```
 
 ## Description of Strategy
@@ -46,8 +60,8 @@ python preprint_match_data_files.py -i preprints.jsonl.gz -o matches.json -f jso
 ### Search Approach and Candidate Filtering
 
 1.  A bibliographic query string is built using metadata extracted from the DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These components are then normalized using a thorough `_normalize_string` function that handles variations in Unicode representation, accents, case, punctuation before constructing the query.
-2. The query then targets the Crossref `/works` endpoint using the `query.bibliographic` parameter, returning up to 25 results (`rows=25`).
-3. Since we're inverting the search to begin with preprints, instead of pre-filtering the query, the strategy retrieves a broader set of candidates and then filters them after retrieval. We retain candidates whose Crossref work type matches a predefined list (`accepted_crossref_types`), which includes `journal-article`, `proceedings-article`, `book-chapter`, `report`, and `posted-content`. 
+2. The query then targets the Crossref `/works` endpoint using the `query.bibliographic` parameter, returning up to 25 results (`rows=25`). The maximum length of this query can be adjusted using the `--max-query-len` argument.
+3. Since we're inverting the search to begin with preprints, instead of pre-filtering the query, the strategy retrieves a broader set of candidates and then filters them after retrieval. We retain candidates whose Crossref work type matches a predefined list (`accepted_crossref_types`), which includes `journal-article`, `proceedings-article`, `book-chapter`, `report`, and `posted-content`.
 
 
 ### Scoring Logic, Weights, and Heuristics:
@@ -61,7 +75,7 @@ The core logic and primary changes to the the strategy (as comparared to the ori
     * We compares normalized titles by:
        * Use of a weighted blend of fuzzy matching scores: `0.45 * fuzz.token_set_ratio + 0.45 * fuzz.token_sort_ratio + 0.10 * fuzz.ratio`.
        * Applying a penalty (`*= 0.67`) if the first three normalized words of one title contain keywords like "correction", "reply", "erratum", etc., while the other title does not.
-* **Author Score:** 
+* **Author Score:**
    * Here, we employ several heuristics:
        * **ORCID Priority:** If both authors have valid, normalized ORCIDs, a match gives 1.0, a mismatch gives 0.0, bypassing name comparison.
        * **Pairwise Greedy Matching (Smaller Lists):** Iteratively finds the most similar pair of authors (one from each list) using `_score_normalized_author_similarity`. This function compares pre-calculated, normalized name variations using `fuzz.token_sort_ratio`.
@@ -69,9 +83,9 @@ The core logic and primary changes to the the strategy (as comparared to the ori
        * **Family Name Boosting:** If family names match and the name similarity score is > 0.6, the pair's score is boosted slightly (`* 1.1`).
        * **Large List (Total Authors > 50) Handling:** Compare the space-separated, sorted strings of normalized family names from each list using `fuzz.token_sort_ratio`.
        * **Normalization:** The sum of scores from matched pairs is normalized by the total number of authors in both lists: `(2.0 * score_sum) / total_authors`, clamped between 0.0 and 1.0.
-* The final score is calculated as a weighted average: `(0.4 * year_score + 1.0 * title_score + 2.2 * author_score) / 3.6`. This weighting heavily emphasizes author similarity (`2.2`) over title (`1.0`) and year (`0.4`).
+* The final score is calculated as a weighted average: `(weight_year * year_score + weight_title * title_score + weight_author * author_score) / (weight_year + weight_title + weight_author)`. The default weights heavily emphasize title similarity (`2.0`) over author (`0.8`) and year (`0.4`), but these can be adjusted via the `--weight-year`, `--weight-title`, and `--weight-author` arguments.
 
 ### Match Selection
 
-1. Only candidates achieving a final weighted score >= `min_score` (0.85) are considered potential matches.
-2. Among these, only the candidates whose scores are within `max_score_diff` (0.04) of the highest score obtained are returned as the final matches. This selects the best match(es) when scores are very close.
+1. Only candidates achieving a final weighted score >= `min_score` (default 0.85, adjustable via `--min-score`) are considered potential matches.
+2. Among these, only the candidates whose scores are within `max_score_diff` (default 0.03, adjustable via `--max-score-diff`) of the highest score obtained are returned as the final matches. This selects the best match(es) when scores are very close.

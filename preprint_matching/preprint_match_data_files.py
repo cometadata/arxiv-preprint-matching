@@ -58,6 +58,41 @@ def parse_arguments():
         default="crossref_candidates.log",
         help="Path to the file for logging raw candidates (default: crossref_candidates.log)."
     )
+
+    strategy_defaults = {
+        'min_score': PreprintSbmvStrategy.DEFAULT_MIN_SCORE,
+        'max_score_diff': PreprintSbmvStrategy.DEFAULT_MAX_SCORE_DIFF,
+        'weight_year': PreprintSbmvStrategy.DEFAULT_WEIGHT_YEAR,
+        'weight_title': PreprintSbmvStrategy.DEFAULT_WEIGHT_TITLE,
+        'weight_author': PreprintSbmvStrategy.DEFAULT_WEIGHT_AUTHOR,
+        'max_query_len': PreprintSbmvStrategy.DEFAULT_MAX_QUERY_LEN
+    }
+
+    parser.add_argument(
+        '--min-score', type=float, default=strategy_defaults['min_score'],
+        help=f"Minimum score threshold for a match (default: {strategy_defaults['min_score']})"
+    )
+    parser.add_argument(
+        '--max-score-diff', type=float, default=strategy_defaults['max_score_diff'],
+        help=f"Maximum allowed difference from top score for multiple matches (default: {strategy_defaults['max_score_diff']})"
+    )
+    parser.add_argument(
+        '--weight-year', type=float, default=strategy_defaults['weight_year'],
+        help=f"Weight for the year score component (default: {strategy_defaults['weight_year']})"
+    )
+    parser.add_argument(
+        '--weight-title', type=float, default=strategy_defaults['weight_title'],
+        help=f"Weight for the title score component (default: {strategy_defaults['weight_title']})"
+    )
+    parser.add_argument(
+        '--weight-author', type=float, default=strategy_defaults['weight_author'],
+        help=f"Weight for the author score component (default: {strategy_defaults['weight_author']})"
+    )
+    parser.add_argument(
+        '--max-query-len', type=int, default=strategy_defaults['max_query_len'],
+        help=f"Maximum length of the query string sent to Crossref (default: {strategy_defaults['max_query_len']})"
+    )
+
     return parser.parse_args()
 
 
@@ -70,7 +105,6 @@ def extract_doi_from_url(url_string):
             return parsed.path.lstrip('/')
     except Exception as e:
         logging.warning(f"Could not parse URL '{url_string}' to extract DOI: {e}")
-        pass
     return None
 
 
@@ -83,11 +117,9 @@ def setup_logging(log_level_str, log_file=None):
 
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
-
     formatter = logging.Formatter(log_format, datefmt=date_format)
 
     root_logger = logging.getLogger()
-
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
@@ -114,7 +146,9 @@ def setup_logging(log_level_str, log_file=None):
         print("Warning: Logging setup completed, but no handlers seem to be attached.", file=sys.stderr)
 
 
-def process_jsonl_file(input_path, output_path, output_format, mailto, user_agent, log_level, log_candidates_flag, candidate_log_filename):
+def process_jsonl_file(input_path, output_path, output_format, mailto, user_agent,
+                       min_score, max_score_diff, weight_year, weight_title, weight_author, max_query_len,
+                       log_level, log_candidates_flag, candidate_log_filename):
 
     main_logger = logging.getLogger(__name__)
 
@@ -124,11 +158,18 @@ def process_jsonl_file(input_path, output_path, output_format, mailto, user_agen
         matching_strategy = PreprintSbmvStrategy(
             mailto=mailto,
             user_agent=user_agent,
+            min_score=min_score,
+            max_score_diff=max_score_diff,
+            weight_year=weight_year,
+            weight_title=weight_title,
+            weight_author=weight_author,
+            max_query_len=max_query_len,
             logger_instance=strategy_logger,
             log_candidates=log_candidates_flag,
             candidate_log_file=candidate_log_filename
         )
-        main_logger.info("Preprint matching strategy initialized.")
+        main_logger.info(
+            "Preprint matching strategy initialized with provided parameters.")
         if log_candidates_flag:
             main_logger.info(f"Strategy configured to log candidates to: {candidate_log_filename}")
 
@@ -158,7 +199,7 @@ def process_jsonl_file(input_path, output_path, output_format, mailto, user_agen
 
     try:
         with open_func(input_path, read_mode, encoding='utf-8') as infile, \
-                open(output_path, write_mode, encoding='utf-8') as outfile:
+                open(output_path, write_mode, encoding='utf-8', newline='') as outfile:
 
             if output_format == 'csv':
                 fieldnames = ['input_doi', 'matched_doi']
@@ -194,7 +235,6 @@ def process_jsonl_file(input_path, output_path, output_format, mailto, user_agen
                         else:
                             main_logger.warning(f"Line {line_num}: Parsed JSON is not a dictionary (type: {type(input_data)}). Cannot reliably get input DOI.")
                             input_doi = "N/A_INVALID_JSON_TYPE"
-
                     except json.JSONDecodeError as e:
                         main_logger.error(f"Line {line_num}: JSON decode error: {e}. Raw line (start): '{line[:100]}...'")
                         errors_encountered += 1
@@ -212,7 +252,6 @@ def process_jsonl_file(input_path, output_path, output_format, mailto, user_agen
                             matched_lines += 1
                         else:
                             main_logger.warning(f"Line {line_num} (Input DOI {input_doi}): Match result item is not a dictionary: {type(first_match)}")
-
                     else:
                         main_logger.info(f"Line {line_num} (Input DOI {input_doi}): No preprint match found by strategy.")
 
@@ -274,7 +313,7 @@ def process_jsonl_file(input_path, output_path, output_format, mailto, user_agen
 
     main_logger.info("--- Processing Summary ---")
     main_logger.info(f"Total lines processed from input: {processed_lines}")
-    main_logger.info(f"Lines resulting in a preprint match: {matched_lines}")
+    main_logger.info(f"Lines resulting in a preprint match (before DOI extraction): {matched_lines}")
     if errors_encountered > 0:
         main_logger.warning(f"Lines skipped or failed due to errors: {errors_encountered}")
     else:
@@ -294,6 +333,12 @@ def main():
         args.format,
         args.mailto,
         args.user_agent,
+        args.min_score,
+        args.max_score_diff,
+        args.weight_year,
+        args.weight_title,
+        args.weight_author,
+        args.max_query_len,
         args.log_level,
         args.log_candidates,
         args.candidate_log_file
