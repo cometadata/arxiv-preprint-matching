@@ -1,4 +1,4 @@
-# Find Duplicate DOI in Preprint Matches
+# Find Duplicate DOIs in Preprint Matches
 
 Find and reports all unique DOI and rows in the preprint matching CSV file output that share a duplicate `matched_doi` value.
 
