@@ -208,7 +208,7 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
              open(output_file_path, write_mode, encoding='utf-8') as outfile:
 
             if args.format == 'csv':
-                fieldnames = ['input_doi', 'matched_doi', 'confidence']
+                fieldnames = ['input_doi', 'matched_doi', 'confidence', 'matched_crossref_type']
                 output_writer = csv.DictWriter(outfile, fieldnames=fieldnames)
                 output_writer.writeheader()
                 main_logger.debug(f"CSV writer initialized for {output_file_path}.")
@@ -257,9 +257,11 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
                         elif matches and isinstance(matches, list) and len(matches) > 0:
                             first_match = matches[0]
                             matched_doi_url = None
+                            crossref_work_type = ''
                             if isinstance(first_match, dict):
                                 matched_doi_url = first_match.get('id')
                                 confidence = first_match.get('confidence')
+                                crossref_work_type = first_match.get('type', '')
 
                                 if isinstance(confidence, (int, float)):
                                     match_confidence_str = f"{confidence:.4f}"
@@ -275,12 +277,15 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
                                     if not matched_doi_extracted:
                                         main_logger.warning(f"Line {line_num} (Input DOI {input_doi_extracted}): Could not extract DOI from matched URL '{matched_doi_url}'.")
                                         match_confidence_str = ''
+                                        crossref_work_type = ''
                                 else:
                                     main_logger.warning(f"Line {line_num} (Input DOI {input_doi_extracted}): Match result dictionary lacks 'id' field: {first_match}")
                                     match_confidence_str = ''
+                                    crossref_work_type = ''
                             else:
                                 main_logger.warning(f"Line {line_num} (Input DOI {input_doi_extracted}): Match result item is not a dictionary: {type(first_match)}")
                                 match_confidence_str = ''
+                                crossref_work_type = ''
                         else:
                             main_logger.info(f"Line {line_num} (Input DOI {input_doi_extracted}): No preprint match found.")
                             match_confidence_str = ''
@@ -289,7 +294,8 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
                         output_record = {
                             "input_doi": input_doi_extracted if not input_doi_extracted.startswith("N/A") else '',
                             "matched_doi": matched_doi_extracted if matched_doi_extracted else '',
-                            "confidence": match_confidence_str if matched_doi_extracted else ''
+                            "confidence": match_confidence_str if matched_doi_extracted else '',
+                            "matched_crossref_type": crossref_work_type if matched_doi_extracted else ''
                         }
 
                 except Exception as e:

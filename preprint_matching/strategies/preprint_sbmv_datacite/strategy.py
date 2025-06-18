@@ -235,6 +235,7 @@ class PreprintSbmvStrategy:
             return []
 
         scores = []
+        candidate_info = {}
         for cand in candidates_crossref:
             if isinstance(cand, dict):
                 cand_doi = cand.get("DOI")
@@ -242,6 +243,7 @@ class PreprintSbmvStrategy:
                     score = self.score(article_datacite, cand)
                     if score is not None:
                         scores.append((cand_doi, score))
+                        candidate_info[cand_doi] = cand
                 else:
                     if "DOI" not in cand:
                         self.logger.debug(f"Candidate missing DOI field for input DOI {input_doi}: {str(cand)[:100]}")
@@ -272,6 +274,7 @@ class PreprintSbmvStrategy:
                 "id": doi_id(doi),
                 "confidence": round(score, 4),
                 "strategies": [self.strategy],
+                "type": candidate_info[doi].get("type", "")
             }
             for doi, score in final_matches
         ]
