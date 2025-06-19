@@ -35,12 +35,11 @@ class PreprintSbmvStrategy:
     DEFAULT_WEIGHT_TITLE = 2.0
     DEFAULT_WEIGHT_AUTHOR = 0.8
 
-    accepted_crossref_types = [
+    _DEFAULT_ACCEPTED_CROSSREF_TYPES = [
         "journal-article",
         "proceedings-article",
         "book-chapter",
-        "report",
-        "posted-content"
+        "report"
     ]
 
     def __init__(self, mailto, user_agent,
@@ -56,7 +55,8 @@ class PreprintSbmvStrategy:
                  status_forcelist=DEFAULT_STATUS_FORCELIST,
                  logger_instance=None,
                  log_candidates=False,
-                 candidate_log_file="crossref_candidates.log"):
+                 candidate_log_file="crossref_candidates.log",
+                 accepted_crossref_types=None):
 
         if not mailto or not user_agent:
             raise ValueError(
@@ -85,6 +85,11 @@ class PreprintSbmvStrategy:
         self.candidate_log_file = candidate_log_file
         if self.log_candidates:
             self.logger.info(f"Candidate logging enabled. Raw candidates will be saved to: {self.candidate_log_file}")
+
+        if accepted_crossref_types is not None and accepted_crossref_types:
+            self.accepted_crossref_types = accepted_crossref_types
+        else:
+            self.accepted_crossref_types = self._DEFAULT_ACCEPTED_CROSSREF_TYPES
 
         try:
             self.session = get_crossref_api_session(
@@ -235,6 +240,7 @@ class PreprintSbmvStrategy:
             return []
 
         scores = []
+        candidate_info = {}
         for cand in candidates_crossref:
             if isinstance(cand, dict):
                 cand_doi = cand.get("DOI")
@@ -242,6 +248,7 @@ class PreprintSbmvStrategy:
                     score = self.score(article_datacite, cand)
                     if score is not None:
                         scores.append((cand_doi, score))
+                        candidate_info[cand_doi] = cand
                 else:
                     if "DOI" not in cand:
                         self.logger.debug(f"Candidate missing DOI field for input DOI {input_doi}: {str(cand)[:100]}")
@@ -272,6 +279,7 @@ class PreprintSbmvStrategy:
                 "id": doi_id(doi),
                 "confidence": round(score, 4),
                 "strategies": [self.strategy],
+                "type": candidate_info[doi].get("type", "")
             }
             for doi, score in final_matches
         ]
