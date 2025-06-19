@@ -35,12 +35,11 @@ class PreprintSbmvStrategy:
     DEFAULT_WEIGHT_TITLE = 2.0
     DEFAULT_WEIGHT_AUTHOR = 0.8
 
-    accepted_crossref_types = [
+    _DEFAULT_ACCEPTED_CROSSREF_TYPES = [
         "journal-article",
         "proceedings-article",
         "book-chapter",
-        "report",
-        "posted-content"
+        "report"
     ]
 
     def __init__(self, mailto, user_agent,
@@ -56,7 +55,8 @@ class PreprintSbmvStrategy:
                  status_forcelist=DEFAULT_STATUS_FORCELIST,
                  logger_instance=None,
                  log_candidates=False,
-                 candidate_log_file="crossref_candidates.log"):
+                 candidate_log_file="crossref_candidates.log",
+                 accepted_crossref_types=None):
 
         if not mailto or not user_agent:
             raise ValueError(
@@ -85,6 +85,11 @@ class PreprintSbmvStrategy:
         self.candidate_log_file = candidate_log_file
         if self.log_candidates:
             self.logger.info(f"Candidate logging enabled. Raw candidates will be saved to: {self.candidate_log_file}")
+
+        if accepted_crossref_types is not None and accepted_crossref_types:
+            self.accepted_crossref_types = accepted_crossref_types
+        else:
+            self.accepted_crossref_types = self._DEFAULT_ACCEPTED_CROSSREF_TYPES
 
         try:
             self.session = get_crossref_api_session(

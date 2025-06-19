@@ -108,6 +108,10 @@ def parse_arguments():
         '--max-consecutive-file-failures', type=int, default=DEFAULT_MAX_CONSECUTIVE_FILE_FAILURES,
         help=f"Maximum number of consecutive files that fail processing before halting the entire script (default: {DEFAULT_MAX_CONSECUTIVE_FILE_FAILURES}). Set to 0 to disable."
     )
+    parser.add_argument(
+        '--work-types', nargs='*', 
+        help="Optional list of Crossref work types to accept (e.g., 'journal-article', 'book-chapter'). If not specified, uses default types (excludes 'posted-content')."
+    )
 
     return parser.parse_args()
 
@@ -407,7 +411,8 @@ def main():
             backoff_factor=args.backoff_factor,
             logger_instance=logging.getLogger('strategy'),
             log_candidates=args.log_candidates,
-            candidate_log_file=args.candidate_log_file
+            candidate_log_file=args.candidate_log_file,
+            accepted_crossref_types=args.work_types
         )
         main_logger.info("Preprint matching strategy initialized successfully.")
     except Exception as e:
