@@ -69,13 +69,13 @@ This strategy attempts to find published work matches for arXiv preprint works i
 
 ### Search Approach and Candidate Filtering
 
-1. A bibliographic query string is built using metadata extracted from the input DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These fields are normalized using unidecode, lowercasing, and removing punctuation before constructing the query.
+1. A bibliographic query string is built using metadata extracted from the input DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These fields are normalized for whitespace, to convert Unicode strings to their ASCII representation, to lowercase strings, and toremove of punctuation before constructing the query.
 2. The query searches the Crossref /works endpoint, using the query.bibliographic parameter and returning up to 25 candidates (`rows=25`) with a maximum query length (default 5000, adjustable via `--max-query-len`).
 3.  Candidates retrieved from Crossref are filtered based on their work type (`type` field) to include only relevant publication types: `journal-article`, `proceedings-article`, `book-chapter`, `report`.
 
 ### Scoring Logic, Weights, and Heuristics:
 
-The strategy employs weighted scoring based on year, title, and author similarity, incorporating fuzzy matching and heuristics:
+The strategy employs weighted scoring based on year, title, and author similarity, incorporating some fuzzy matching and different heuristics:
 
 * **Year Score:**
     * Compares the preprint's `publicationYear` with the candidate's publication year from the fields `published-online`, `published-print`, `issued`, and `created`.
