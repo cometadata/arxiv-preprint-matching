@@ -10,9 +10,6 @@ pip install -r requirements.txt
 ```
 
 ## Usage
-
-The script processes all `.jsonl` and `.jsonl.gz` files found within a specified input directory, saving results to a corresponding structure in an output directory.
-
 ```bash
 python preprint_match_data_files.py -i INPUT_DIR -f FORMAT -m EMAIL -u USER_AGENT [OPTIONS]
 ```
@@ -20,7 +17,7 @@ python preprint_match_data_files.py -i INPUT_DIR -f FORMAT -m EMAIL -u USER_AGEN
 ### Required Arguments
 - `-i, --input`: Path to the input directory containing .jsonl or .jsonl.gz files.
 - `-f, --format`: Output format ('json' or 'csv') for the result files.
-- `-m, --mailto`: Email address for Crossref API politeness (required by Crossref).
+- `-m, --mailto`: Email address for access to the polite pool in the Crossref API.
 - `-u, --user-agent`: User-Agent string for API requests (e.g., "arXivPreprintMatcher/1.0").
 
 ### Optional Arguments
@@ -67,38 +64,38 @@ python preprint_match_data_files.py -i preprints/ -f json -m <your_email@example
 
 ## Description of Strategy
 
-This strategy attempts to find potential published versions (primarily journal articles) corresponding to input preprint records (expected in DataCite JSON format). It uses the Crossref API and applies scoring based on metadata similarity.
+This strategy attempts to find published work matches for arXiv preprint works inputs. It uses the Crossref API to search and apply scoring based on the similarity of the metadata.
 
 
 ### Search Approach and Candidate Filtering
 
-1.  A bibliographic query string is built using metadata extracted from the DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These components are normalized using `unidecode`, lowercasing, and removing punctuation before constructing the query.
-2.  The query targets the Crossref `/works` endpoint via a robust HTTP session, using the `query.bibliographic` parameter and returning up to 25 candidates (`rows=25`). The maximum query length is capped (default 5000, adjustable via `--max-query-len`).
-3.  Candidates retrieved from Crossref are filtered based on their work type (`type` field) to include only relevant publication types such as `journal-article`, `proceedings-article`, `book-chapter`, `report`, and `posted-content`.
+1. A bibliographic query string is built using metadata extracted from the input DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These fields are normalized using unidecode, lowercasing, and removing punctuation before constructing the query.
+2. The query searches the Crossref /works endpoint, using the query.bibliographic parameter and returning up to 25 candidates (`rows=25`) with a maximum query length (default 5000, adjustable via `--max-query-len`).
+3.  Candidates retrieved from Crossref are filtered based on their work type (`type` field) to include only relevant publication types: `journal-article`, `proceedings-article`, `book-chapter`, `report`.
 
 ### Scoring Logic, Weights, and Heuristics:
 
 The strategy employs weighted scoring based on year, title, and author similarity, incorporating fuzzy matching and heuristics:
 
 * **Year Score:**
-    * Compares the preprint's `publicationYear` with the candidate's publication year (extracted carefully from fields like `published-online`, `published-print`, `issued`, `created`).
-    * Assigns scores based on the difference (`candidate_year - preprint_year`): 1.0 for diff 0-2; 0.9 for diff 3; 0.8 for diff 4; 0.0 otherwise (penalizing cases where candidate significantly predates or postdates the preprint). Returns 0.0 if years cannot be compared.
+    * Compares the preprint's `publicationYear` with the candidate's publication year from the fields `published-online`, `published-print`, `issued`, and `created`.
+    * A score is assigned based on the difference between the preprint and candidate work's year of publication (`candidate_year - preprint_year`): 1.0 for diff 0-2; 0.9 for diff 3; 0.8 for diff 4; 0.0 otherwise, penalizing cases where candidate significantly predates or postdates the preprint.
 * **Title Score:**
-    * Compares normalized titles (input vs. candidate). Normalization includes Unicode handling, accent removal, lowercasing, and punctuation stripping.
-    * Uses a weighted blend of fuzzy matching scores: `0.4 * fuzz.token_set_ratio + 0.4 * fuzz.token_sort_ratio + 0.2 * fuzz.WRatio`.
-    * Applies a penalty (`*= 0.7`) if the *first normalized word* of one title contains keywords like "correction", "reply", "erratum", etc., while the other title does not.
+    * Compares normalized titles (input vs. candidate). Normalization is done for whitespace, to convert Unicode strings to their ASCII representation, to lowercase strings, and remove of punctuation.
+    * A weighted blend of fuzzy matching scores is the used: `0.4 * fuzz.token_set_ratio + 0.4 * fuzz.token_sort_ratio + 0.2 * fuzz.WRatio`.
+    * A penalty is applied (`*= 0.7`) if the *first normalized word* of one title contains keywords like "correction", "reply", "erratum", etc., while the other title does not.
 * **Author Score:**
-    * Applies several heuristics for comparing normalized author lists:
-        * An exact match between valid, normalized ORCIDs results in a score of 1.0; a mismatch results in 0.0, skipping name comparison.
-        * Iteratively finds the most similar pair of authors between the two lists using `_score_normalized_author_similarity`. This comparison uses `fuzz.token_sort_ratio` on pre-calculated, normalized name variations (e.g., "J Smith", "Smith J", "John Smith", "Smith John").
-        * Author pairs with a similarity below 0.5 are discarded during the greedy matching.
+    * Several heuristics are applied for comparing normalized author lists:
+        * An exact match between valid, normalized ORCIDs results in a score of 1.0; a mismatch results in 0.0, otherwise skipping the name comparison.
+        * Iteratively searches for the most similar pair of authors between the two lists using `fuzz.token_sort_ratio` on a set of pre-calculated, normalized name variations (e.g., "J Smith", "Smith J", "John Smith", "Smith John").
+        * Author pairs with a similarity below 0.5 are discarded.
         * If family names match *and* the name similarity score is > 0.6, the pair's score is boosted slightly (`* 1.1`).
-        * For efficiency, compares sorted strings of normalized family names using `fuzz.token_sort_ratio`.
-        * The final author score (based on the sum of matched pair scores in the greedy approach) is normalized by the total number of unique authors involved: `(2.0 * score_sum) / total_authors`, clamped between 0.0 and 1.0. Handles empty lists gracefully.
-* **Final Weighted Score:** Calculated as: `(weight_year * year_score + weight_title * title_score + weight_author * author_score) / (weight_year + weight_title + weight_author)`. Default weights are `weight_title=2.0`, `weight_author=0.8`, `weight_year=0.4`. These weights can be adjusted via command-line arguments.
+        * Compare sorted strings of normalized family names using fuzz.token_sort_ratio.
+        * The final author score (based on the sum of matched pair scores in the prior steps) is normalized by the total number of unique authors involved: `(2.0 * score_sum) / total_authors`, clamped between 0.0 and 1.0.
+* **Final Weighted Score:** Calculated as: `(weight_year * year_score + weight_title * title_score + weight_author * author_score) / (weight_year + weight_title + weight_author)`. Default weights are `weight_title=2.0`, `weight_author=0.8`, `weight_year=0.4`.
 
 ### Match Selection
 
 1.  Only candidates achieving a final weighted score >= `min_score` (default 0.85) are considered potential matches.
-2.  Among these, only candidates whose scores are within `max_score_diff` (default 0.03) of the *highest* score obtained for that input record are returned as the final match(es). This helps select the best result(s) when multiple candidates have very similar high scores.
+2.  Among these, only candidates whose scores are within `max_score_diff` (default 0.03) of the highest score obtained for that input record are returned as the final match to select the best result when multiple candidates have similar high scores.
 ```
