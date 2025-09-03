@@ -1,19 +1,101 @@
 # arXiv Preprint Matching
 
-This is a COMET enrichment and curation workflow pilot project. Go to the [Pilot Projects Overview Board](https://github.com/orgs/cometadata/projects/14) to see all of the pilots.  
+Modified form of [Search Based Matching with Validation (SBMV) preprint matching strategy](https://gitlab.com/crossref/labs/marple/-/blob/main/strategies_available/preprint_sbmv/strategy.py?ref_type=heads) developed by [@dtkaczyk](https://github.com/dtkaczyk), specifically adapted for matching arXiv preprint DOIs represented in the DataCite schema.
 
-## Objective
 
-The preprint matching strategy aims to establish links between arXiv preprints (identified by their DOIs registered in DataCite) and their corresponding published journal article DOIs in Crossref. 
+## Installation
 
-## Getting Involved 
+```bash
+pip install -r requirements.txt
+```
 
-COMET is in the process of setting up a Github space for ideas and feedback from the COMET community. In the meantime, get involved by: 
-* providing input on the project at [the pilot project epic](https://github.com/cometadata/arxiv-preprint-matching/issues/12)
-* viewing the project's progress at the [Project Board](https://github.com/orgs/cometadata/projects/5)
-* contributing topics about this pilot by opening an issue in this repo, or
-* contacting COMET's Project Lead, Dione Mentis, at [dione.mentis@datacite.org](mailto:dione.mentis@datacite.org)
+## Usage
+```bash
+python preprint_match_data_files.py -i INPUT_DIR -f FORMAT -m EMAIL -u USER_AGENT [OPTIONS]
+```
 
-## Metrics
+### Required Arguments
+- `-i, --input`: Path to the input directory containing .jsonl or .jsonl.gz files.
+- `-f, --format`: Output format ('json' or 'csv') for the result files.
+- `-m, --mailto`: Email address for access to the polite pool in the Crossref API.
+- `-u, --user-agent`: User-Agent string for API requests (e.g., "arXivPreprintMatcher/1.0").
 
-<img width="1009" alt="arxiv_preprint_metrics" src="https://github.com/user-attachments/assets/00ee56e9-eb89-4e3d-bdfd-8c8e1ba0b95e" />
+### Optional Arguments
+#### Input/Output:
+- `-o, --output`: Path to the output directory where results will be saved. Will be created if it doesn't exist (default: `./output`). Output files mirror the input structure.
+
+#### Logging:
+- `-ll, --log-level`: Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, NONE). Default: INFO.
+- `-lf, --log-file`: Path to log file (defaults to stderr).
+- `-lc, --log-candidates`: If set, logs raw Crossref candidate results (appended for all files processed).
+- `-cf, --candidate-log-file`: Path for logging candidates (default: crossref_candidates.log).
+
+#### Strategy Parameters:
+- `--min-score`: Minimum score threshold for a match (default: 0.85).
+- `--max-score-diff`: Maximum allowed difference from top score for multiple matches (default: 0.03).
+- `--weight-year`: Weight for the year score component (default: 0.4).
+- `--weight-title`: Weight for the title score component (default: 2.0).
+- `--weight-author`: Weight for the author score component (default: 0.8).
+- `--max-query-len`: Maximum length of the query string sent to Crossref (default: 5000).
+
+#### File Processing & API Handling:
+- `--timeout`: Request timeout (connect, read) in seconds (default: 10 30).
+- `--max-retries`: Maximum number of retries for failed API requests (default: 3).
+- `--backoff-factor`: Exponential backoff factor for retries (default: 0.5).
+- `--max-consecutive-line-failures`: Maximum number of consecutive lines that fail (due to JSON errors, persistent API errors after retries, or other processing exceptions) within a single file before halting processing *for that file* (default: 10). Set to 0 to disable.
+- `--max-consecutive-file-failures`: Maximum number of consecutive files that fail processing (due to file errors or being halted by the line-level breaker) before halting the *entire script* (default: 3). Set to 0 to disable.
+
+## Examples
+
+Process all `.jsonl`/`.jsonl.gz` files in `input_data/` and save CSV results to `output_results/` (creating it if needed):
+
+```bash
+python preprint_match_data_files.py -i input_data/ -o output_results/ -f csv -m <your_email@example.com> -u "MyMatchingTool/1.1 (mailto:your_email@example.com)"
+```
+
+Process files in `preprints/`, saving JSON results to the default `./output` directory, with detailed logging and custom API/strategy settings:
+
+```bash
+python preprint_match_data_files.py -i preprints/ -f json -m <your_email@example.com> -u "arXivPreprintMatcher/1.0" \
+ -ll DEBUG -lf matching.log -lc \
+ --min-score 0.8 --weight-title 1.5 --weight-author 1.0 \
+ --timeout 15 45 --max-retries 5 --max-consecutive-failures 20
+```
+
+## Description of Strategy
+
+This strategy attempts to find published work matches for arXiv preprint works inputs. It uses the Crossref API to search and apply scoring based on the similarity of the metadata.
+
+
+### Search Approach and Candidate Filtering
+
+1. A bibliographic query string is built using metadata extracted from the input DataCite input: the main title (and subtitle, if present), publication year, and the family names of personal authors listed as `creators` or `contributors`. These fields are normalized for whitespace, to convert Unicode strings to their ASCII representation, to lowercase strings, and to remove of punctuation before constructing the query.
+2. The query searches the Crossref /works endpoint, using the query.bibliographic parameter and returning up to 25 candidates (`rows=25`) with a maximum query length (default 5000, adjustable via `--max-query-len`).
+3.  Candidates retrieved from Crossref are filtered based on their work type (`type` field) to include only relevant publication types: `journal-article`, `proceedings-article`, `book-chapter`, `report`.
+
+### Scoring Logic, Weights, and Heuristics:
+
+The strategy employs weighted scoring based on year, title, and author similarity, incorporating some fuzzy matching and different heuristics:
+
+* **Year Score:**
+    * Compares the preprint's `publicationYear` with the candidate's publication year from the fields `published-online`, `published-print`, `issued`, and `created`.
+    * A score is assigned based on the difference between the preprint and candidate work's year of publication (`candidate_year - preprint_year`): 1.0 for diff 0-2; 0.9 for diff 3; 0.8 for diff 4; 0.0 otherwise, penalizing cases where candidate significantly predates or postdates the preprint.
+* **Title Score:**
+    * Compares normalized titles (input vs. candidate). Normalization is done for whitespace, to convert Unicode strings to their ASCII representation, to lowercase strings, and remove of punctuation.
+    * A weighted blend of fuzzy matching scores is the used: `0.4 * fuzz.token_set_ratio + 0.4 * fuzz.token_sort_ratio + 0.2 * fuzz.WRatio`.
+    * A penalty is applied (`*= 0.7`) if the *first normalized word* of one title contains keywords like "correction", "reply", "erratum", etc., while the other title does not.
+* **Author Score:**
+    * Several heuristics are applied for comparing normalized author lists:
+        * An exact match between valid, normalized ORCIDs results in a score of 1.0; a mismatch results in 0.0, otherwise skipping the name comparison.
+        * Iteratively searches for the most similar pair of authors between the two lists using `fuzz.token_sort_ratio` on a set of pre-calculated, normalized name variations (e.g., "J Smith", "Smith J", "John Smith", "Smith John").
+        * Author pairs with a similarity below 0.5 are discarded.
+        * If family names match *and* the name similarity score is > 0.6, the pair's score is boosted slightly (`* 1.1`).
+        * Compare sorted strings of normalized family names using fuzz.token_sort_ratio.
+        * The final author score (based on the sum of matched pair scores in the prior steps) is normalized by the total number of unique authors involved: `(2.0 * score_sum) / total_authors`, clamped between 0.0 and 1.0.
+* **Final Weighted Score:** Calculated as: `(weight_year * year_score + weight_title * title_score + weight_author * author_score) / (weight_year + weight_title + weight_author)`. Default weights are `weight_title=2.0`, `weight_author=0.8`, `weight_year=0.4`.
+
+### Match Selection
+
+1.  Only candidates achieving a final weighted score >= `min_score` (default 0.85) are considered potential matches.
+2.  Among these, only candidates whose scores are within `max_score_diff` (default 0.03) of the highest score obtained for that input record are returned as the final match to select the best result when multiple candidates have similar high scores.
+
