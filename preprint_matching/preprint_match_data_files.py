@@ -108,9 +108,26 @@ def parse_arguments():
         '--max-consecutive-file-failures', type=int, default=DEFAULT_MAX_CONSECUTIVE_FILE_FAILURES,
         help=f"Maximum number of consecutive files that fail processing before halting the entire script (default: {DEFAULT_MAX_CONSECUTIVE_FILE_FAILURES}). Set to 0 to disable."
     )
+
     parser.add_argument(
-        '--work-types', nargs='*', 
-        help="Optional list of Crossref work types to accept (e.g., 'journal-article', 'book-chapter'). If not specified, uses default types (excludes 'posted-content')."
+        '--enable-reranker', action='store_true', default=False,
+        help="Enable ColBERT reranking step for improved matching (default: False)."
+    )
+    parser.add_argument(
+        '--reranker-model-path', type=str, default='lightonai/GTE-ModernColBERT-v1',
+        help="Path or HuggingFace model name for ColBERT reranker (default: 'lightonai/GTE-ModernColBERT-v1')."
+    )
+    parser.add_argument(
+        '--reranker-batch-size', type=int, default=16,
+        help="Batch size for reranker's encode method (default: 16)."
+    )
+    parser.add_argument(
+        '--heuristic-weight', type=float, default=0.3,
+        help="Weight of original heuristic score in hybrid calculation (default: 0.3)."
+    )
+    parser.add_argument(
+        '--reranker-weight', type=float, default=0.7,
+        help="Weight of reranker score in hybrid calculation (default: 0.7)."
     )
 
     return parser.parse_args()
@@ -212,7 +229,7 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
              open(output_file_path, write_mode, encoding='utf-8') as outfile:
 
             if args.format == 'csv':
-                fieldnames = ['input_doi', 'matched_doi', 'confidence', 'matched_crossref_type']
+                fieldnames = ['input_doi', 'matched_doi', 'confidence']
                 output_writer = csv.DictWriter(outfile, fieldnames=fieldnames)
                 output_writer.writeheader()
                 main_logger.debug(f"CSV writer initialized for {output_file_path}.")
@@ -261,11 +278,9 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
                         elif matches and isinstance(matches, list) and len(matches) > 0:
                             first_match = matches[0]
                             matched_doi_url = None
-                            crossref_work_type = ''
                             if isinstance(first_match, dict):
                                 matched_doi_url = first_match.get('id')
                                 confidence = first_match.get('confidence')
-                                crossref_work_type = first_match.get('type', '')
 
                                 if isinstance(confidence, (int, float)):
                                     match_confidence_str = f"{confidence:.4f}"
@@ -281,15 +296,12 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
                                     if not matched_doi_extracted:
                                         main_logger.warning(f"Line {line_num} (Input DOI {input_doi_extracted}): Could not extract DOI from matched URL '{matched_doi_url}'.")
                                         match_confidence_str = ''
-                                        crossref_work_type = ''
                                 else:
                                     main_logger.warning(f"Line {line_num} (Input DOI {input_doi_extracted}): Match result dictionary lacks 'id' field: {first_match}")
                                     match_confidence_str = ''
-                                    crossref_work_type = ''
                             else:
                                 main_logger.warning(f"Line {line_num} (Input DOI {input_doi_extracted}): Match result item is not a dictionary: {type(first_match)}")
                                 match_confidence_str = ''
-                                crossref_work_type = ''
                         else:
                             main_logger.info(f"Line {line_num} (Input DOI {input_doi_extracted}): No preprint match found.")
                             match_confidence_str = ''
@@ -298,8 +310,7 @@ def process_single_file(input_file_path, output_file_path, matching_strategy, ar
                         output_record = {
                             "input_doi": input_doi_extracted if not input_doi_extracted.startswith("N/A") else '',
                             "matched_doi": matched_doi_extracted if matched_doi_extracted else '',
-                            "confidence": match_confidence_str if matched_doi_extracted else '',
-                            "matched_crossref_type": crossref_work_type if matched_doi_extracted else ''
+                            "confidence": match_confidence_str if matched_doi_extracted else ''
                         }
 
                 except Exception as e:
@@ -412,7 +423,11 @@ def main():
             logger_instance=logging.getLogger('strategy'),
             log_candidates=args.log_candidates,
             candidate_log_file=args.candidate_log_file,
-            accepted_crossref_types=args.work_types
+            enable_reranker=args.enable_reranker,
+            reranker_model_path=args.reranker_model_path,
+            reranker_batch_size=args.reranker_batch_size,
+            heuristic_weight=args.heuristic_weight,
+            reranker_weight=args.reranker_weight
         )
         main_logger.info("Preprint matching strategy initialized successfully.")
     except Exception as e:

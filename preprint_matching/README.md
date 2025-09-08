@@ -1,13 +1,84 @@
-# arXiv Preprint Matching Strategy
+# arXiv Preprint Matching
 
-This is the code repository for the COMET initiative pilot project: 'Match Preprints to Published Journal Articles. Refer to the [Project Doc](https://docs.google.com/document/d/1oQ2VUdRz2affr2AnogmLx4hjOGf0SldkGVI0n7HIFBE/edit?usp=sharing) for a full description of the project and information on getting involved. 
+Modified form of [Search Based Matching with Validation (SBMV) preprint matching strategy](https://gitlab.com/crossref/labs/marple/-/blob/main/strategies_available/preprint_sbmv/strategy.py?ref_type=heads) developed by [@dtkaczyk](https://github.com/dtkaczyk), specifically adapted for matching arXiv preprint DOIs represented in the DataCite schema.
 
-This strategy is a modified form of [Search Based Matching with Validation (SBMV) preprint matching strategy](https://gitlab.com/crossref/labs/marple/-/blob/main/strategies_available/preprint_sbmv/strategy.py?ref_type=heads) developed by [@dtkaczyk](https://github.com/dtkaczyk), specifically adapted for matching arXiv preprint DOIs represented in the DataCite schema.
 
-If you use this strategy, please cite: 
+## Installation
 
-Buttrick, Adam. "arXiv preprint to publication matching strategy." Collaborative Metadata (COMET), 2025, DOI: [10.82461/S678-CV26](https://doi.org/10.82461/S678-CV26).
+```bash
+pip install -r requirements.txt
+```
 
+## Usage
+
+The script processes all `.jsonl` and `.jsonl.gz` files found within a specified input directory, saving results to a corresponding structure in an output directory.
+
+```bash
+python preprint_match_data_files.py -i INPUT_DIR -f FORMAT -m EMAIL -u USER_AGENT [OPTIONS]
+```
+
+### Required Arguments
+- `-i, --input`: Path to the input directory containing .jsonl or .jsonl.gz files.
+- `-f, --format`: Output format ('json' or 'csv') for the result files.
+- `-m, --mailto`: Email address for Crossref API politeness (required by Crossref).
+- `-u, --user-agent`: User-Agent string for API requests (e.g., "arXivPreprintMatcher/1.0").
+
+### Optional Arguments
+#### Input/Output:
+- `-o, --output`: Path to the output directory where results will be saved. Will be created if it doesn't exist (default: `./output`). Output files mirror the input structure.
+
+#### Logging:
+- `-ll, --log-level`: Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, NONE). Default: INFO.
+- `-lf, --log-file`: Path to log file (defaults to stderr).
+- `-lc, --log-candidates`: If set, logs raw Crossref candidate results (appended for all files processed).
+- `-cf, --candidate-log-file`: Path for logging candidates (default: crossref_candidates.log).
+
+#### Strategy Parameters:
+- `--min-score`: Minimum score threshold for a match (default: 0.85).
+- `--max-score-diff`: Maximum allowed difference from top score for multiple matches (default: 0.03).
+- `--weight-year`: Weight for the year score component (default: 0.4).
+- `--weight-title`: Weight for the title score component (default: 2.0).
+- `--weight-author`: Weight for the author score component (default: 0.8).
+- `--max-query-len`: Maximum length of the query string sent to Crossref (default: 5000).
+
+#### Reranking Parameters (Optional):
+- `--enable-reranker`: Enable ColBERT reranking step for improved matching accuracy (default: False).
+- `--reranker-model-path`: Path or HuggingFace model name for ColBERT reranker (default: 'lightonai/GTE-ModernColBERT-v1').
+- `--reranker-batch-size`: Batch size for reranker's encode method (default: 16).
+- `--heuristic-weight`: Weight of original heuristic score in hybrid calculation (default: 0.3).
+- `--reranker-weight`: Weight of reranker score in hybrid calculation (default: 0.7).
+
+#### File Processing & API Handling:
+- `--timeout`: Request timeout (connect, read) in seconds (default: 10 30).
+- `--max-retries`: Maximum number of retries for failed API requests (default: 3).
+- `--backoff-factor`: Exponential backoff factor for retries (default: 0.5).
+- `--max-consecutive-line-failures`: Maximum number of consecutive lines that fail (due to JSON errors, persistent API errors after retries, or other processing exceptions) within a single file before halting processing *for that file* (default: 10). Set to 0 to disable.
+- `--max-consecutive-file-failures`: Maximum number of consecutive files that fail processing (due to file errors or being halted by the line-level breaker) before halting the *entire script* (default: 3). Set to 0 to disable.
+
+## Examples
+
+Process all `.jsonl`/`.jsonl.gz` files in `input_data/` and save CSV results to `output_results/` (creating it if needed):
+
+```bash
+python preprint_match_data_files.py -i input_data/ -o output_results/ -f csv -m <your_email@example.com> -u "MyMatchingTool/1.1 (mailto:your_email@example.com)"
+```
+
+Process files in `preprints/`, saving JSON results to the default `./output` directory, with detailed logging and custom API/strategy settings:
+
+```bash
+python preprint_match_data_files.py -i preprints/ -f json -m <your_email@example.com> -u "arXivPreprintMatcher/1.0" \
+ -ll DEBUG -lf matching.log -lc \
+ --min-score 0.8 --weight-title 1.5 --weight-author 1.0 \
+ --timeout 15 45 --max-retries 5 --max-consecutive-line-failures 20
+```
+
+Process with ColBERT reranking enabled:
+
+```bash
+python preprint_match_data_files.py -i input_data/ -o output_results/ -f csv -m <your_email@example.com> -u "MyMatchingTool/1.1" \
+ --enable-reranker --reranker-model-path "lightonai/GTE-ModernColBERT-v1" \
+ --heuristic-weight 0.3 --reranker-weight 0.7
+```
 
 ## Description of Strategy
 
@@ -68,3 +139,4 @@ When enabled with `--enable-reranker`, the strategy incorporates a neural rerank
 
 #### Fallback Behavior:
 If reranking fails (missing dependencies, model loading errors, or runtime exceptions), the system automatically falls back to heuristic-only scoring with appropriate logging.
+
