@@ -13,7 +13,7 @@
             "@type": "Person"
         }
     ],
-    "codeRepository": "https://github.com/cometadata/arxiv-preprint-matching.git",
+    "codeRepository": "git+https://github.com/cometadata/arxiv-preprint-matching.git",
     "description": "Preprint matching arXiv DOIs to subsequently published works in Crossref ",
     "funder": {
         "name": "The Navigation Fund",
