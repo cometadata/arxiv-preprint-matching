@@ -1,6 +1,6 @@
 # arXiv Preprint Matching Strategy
 
-This is the code repository for the COMET initiative pilot project: 'Match Preprints to Published Journal Articles'. Refer to the [Project Hub](https://docs.google.com/document/d/1oQ2VUdRz2affr2AnogmLx4hjOGf0SldkGVI0n7HIFBE/edit?usp=sharing) for a full description of the project and information on getting involved. 
+This is the code repository for the [COMET](https://www.cometadata.org/) pilot project: 'Match Preprints to Published Journal Articles'. Refer to the [Project Documentation](https://zenodo.org/records/20811849) for a full description and report of the results.
 
 This strategy is a modified form of [Search Based Matching with Validation (SBMV) preprint matching strategy](https://gitlab.com/crossref/labs/marple/-/blob/main/strategies_available/preprint_sbmv/strategy.py?ref_type=heads) developed by [@dtkaczyk](https://github.com/dtkaczyk), specifically adapted for matching arXiv preprint DOIs represented in the DataCite schema.
 
